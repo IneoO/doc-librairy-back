@@ -1,41 +1,63 @@
 import * as process from 'process';
 import express from 'express';
 import * as bodyParser from 'body-parser';
+// import * as cookieParser from 'cookie-parser';
 import * as dotenv from 'dotenv';
 import bluebird from 'bluebird';
 import mongoose from 'mongoose';
-import logger from './util/logger';
-import { MONGODB_URI } from './util/secrets';
+import { MONGODB_URI } from './utils/secrets';
+import loggerMiddleware from './middleware/logger.middleware';
+import errorMiddleware from './middleware/error.middleware';
 
-// Load environment variables from .env file, where API keys and passwords are configured
-dotenv.config({ path: '.env' });
+class App {
+  public app: express.Application;
+  public port: number;
+  public env: string;
 
-// Controllers (route handlers)
+  constructor(controllers) {
+    dotenv.config({ path: '.env' });
+    this.app = express();
+    console.log(MONGODB_URI);
+    this.port = Number(process.env.PORT) || 3000;
 
-// Create Express server
-const app = express();
+    this.connectToTheDatabase();
+    this.initializeMiddlewares();
+    this.initializeControllers(controllers);
+    this.initializeErrorHandling();
+  }
 
-// Connect to MongoDB
-const mongoUrl = MONGODB_URI;
-(<any>mongoose).Promise = bluebird;
+  private connectToTheDatabase() {
+    const mongoUrl = MONGODB_URI;
+    (<any>mongoose).Promise = bluebird;
+    mongoose.connect(mongoUrl, { useNewUrlParser: true }).catch(err => {
+      console.info(`MongoDB connection error. Please make sure MongoDB is running. ${err}`);
+      process.exit();
+    });
+  }
 
-mongoose.connect(mongoUrl, { useNewUrlParser: true }).catch((err) => {
-  logger.info(`MongoDB connection error. Please make sure MongoDB is running. ${err}`);
-  process.exit();
-});
+  private initializeMiddlewares() {
+    this.app.use(bodyParser.json());
+    // this.app.use(cookieParser());
+    this.app.use(loggerMiddleware);
+  }
 
-app.set('port', process.env.PORT || 3000);
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+  private initializeControllers(controllers) {
+    controllers.forEach(controller => {
+      this.app.use('/', controller.router);
+    });
+  }
 
-/**
- * API routes.
- */
-app.get('/', (request, response) => {
-  response.send('Hello world!');
-});
-/**
-* OAuth authentication routes. (Sign in)
-*/
+  private initializeErrorHandling() {
+    this.app.use(errorMiddleware);
+  }
 
-export default app;
+  public listen() {
+    this.app.listen(this.port, () => {
+      console.log(
+        `App is running at http://localhost:${this.port}`,
+      );
+    });
+  }
+}
+
+export default App;
